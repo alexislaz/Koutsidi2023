@@ -11,28 +11,43 @@
 ###          Spawning habitat  pelagic, benthic
 ###          Maximum length    <20cm, 20-50cm, 50-100cm, >100cm
 ###          Spawning period   spring, summer, autumn, winter
-###   2) randomized MEDITS haul (x) species abundance 'data.frame'; 471 hauls (x) (108 species + 12 variables of haul info)
+###   2) **randomized** (on catch abundance) MEDITS haul (x) species abundance 'data.frame'; 471 hauls (x) (108 species + 12 variables of haul info)
 ###   3) 'data.frame' storing intra-specific assymetric competition indices for all species
 ###   4) 'data.frame' storing all inter-specific assymetric competition indices for all species
 
-data1 = readRDS("~/data1.rds")
-data2 = readRDS("~/data2.rds")
-data3 = readRDS("~/data3.rds")
-data4 = readRDS("~/data4.rds")
+#################################################################################
+#################################################################################
+#################################################################################
+### Load datasets  (takes some time)
+data1 = as.matrix(read.csv("https://raw.githubusercontent.com/alexislaz/Koutsidi2023/e6650ae4a8f3ae7f252808044fdc6ab682f60cd5/data1.csv", 
+                           row.names = 1, check.names = FALSE))
+data2 = read.csv("https://raw.githubusercontent.com/alexislaz/Koutsidi2023/e6650ae4a8f3ae7f252808044fdc6ab682f60cd5/data2.csv",
+                 row.names = 1, check.names = FALSE)
+data3 = read.csv("https://raw.githubusercontent.com/alexislaz/Koutsidi2023/e6650ae4a8f3ae7f252808044fdc6ab682f60cd5/data3.csv",
+                row.names = 1, check.names = FALSE, 
+                 colClasses = c(species = "factor", fyear = "factor", Bottom.type.new = "factor"))
+data4 = read.csv("https://raw.githubusercontent.com/alexislaz/Koutsidi2023/e6650ae4a8f3ae7f252808044fdc6ab682f60cd5/data4.csv",
+                row.names = 1, check.names = FALSE,
+                colClasses = c(Bottom.type.new = "factor"))
 
-
+#################################################################################
+#################################################################################
+#################################################################################
 ### Calculate assymetric competition index ###
-## column numbers containing haul info
-index_of_non_species = 1:12
+
+## column numbers containing haul info variables
+id_var = 1:12
 
 ## compute competitions and store in 'list' of length 471 (one 108 x 108 matrix for each haul)
 all_comps = vector("list", nrow(data2))
+names(all_comps) = sprintf("Haul%d", data2$aa)
+
 for(i in 1:nrow(data2)) {
   h = data2[i, ]
   index = match(colnames(h), rownames(data1))
-  index = index[-index_of_non_species]
+  index = index[-id_var]
   m1 = data1[index, ]
-  m2 = unlist(h[-index_of_non_species])
+  m2 = unlist(h[-id_var])
   m2[is.na(m2)] = 0
   mat = m1 * m2
   mat = t(mat)
@@ -41,12 +56,15 @@ for(i in 1:nrow(data2)) {
   mat.comp = crossprod(mat.p, mat.q)
   
   # eliminate species not in haul
-  no_catch_species = names(h[-index_of_non_species])[is.na(unlist(h[-index_of_non_species]))]
+  no_catch_species = names(h[-id_var])[is.na(unlist(h[-id_var]))]
   fill_na = rownames(mat.comp) %in% no_catch_species
   mat.comp[fill_na, ] = NA
   mat.comp[, fill_na] = NA
   all_comps[[i]] = mat.comp
 }
+
+str(all_comps)
+
 #################################################################################
 #################################################################################
 #################################################################################
@@ -54,11 +72,11 @@ for(i in 1:nrow(data2)) {
 library(mgcv) 
 library(ggplot2)
 
-## model selected species 
-csp = c("Arge sph", "Aris fol", "Cent gra", "Dasy pas", "Epin aen", "Etmo spi", "Gale mel", 
-        "Hopl med", "Ille coi", "Loph bud", "Merl mer", "Mull bar", "Mura hel", "Poly ame",
-        "Raja cla", "Scyl can", "Siga lur", "Spic sma", "Squa aca", "Squa bla", "Syno sau")
-sub.data3 = data3[data3$species %in% csp, ]
+## model selected species only 
+sp.sel = c("Arge sph", "Aris fol", "Cent gra", "Dasy pas", "Epin aen", "Etmo spi", "Gale mel",
+           "Hopl med", "Ille coi", "Loph bud", "Merl mer", "Mull bar", "Mura hel", "Poly ame",
+           "Raja cla", "Scyl can", "Siga lur", "Spic sma", "Squa aca", "Squa bla", "Syno sau")
+sub.data3 = data3[data3$species %in% sp.sel, ]
 
 mod = gam(intracomp ~ 
             s(Depth, k = 5) + 
@@ -76,7 +94,7 @@ mod = gam(intracomp ~
 
 ## predict/plot partial depth effect on intra-specific competition
 newdata = expand.grid(Depth = seq(min(sub.data3$Depth, na.rm = TRUE), max(sub.data3$Depth, na.rm = TRUE), by = 10),
-                      species = csp)
+                      species = sp.sel)
 pred = predict(mod, newdata,
                type = "terms", terms = "s(Depth,species)", 
                newdata.guaranteed = TRUE, se = TRUE)
@@ -90,66 +108,70 @@ ggplot(data = pred) +
 
 ## predict/plot partial substrate effect on intra-specific competition
 newdata = expand.grid(Bottom.type.new = levels(sub.data3$Bottom.type.new),
-                      species = csp)
+                      species = sp.sel)
 pred = predict(mod, newdata,
                type = "terms", terms = "s(Bottom.type.new,species)", 
                newdata.guaranteed = TRUE, se = TRUE)
-pred = data.frame(species = newdata$species, bottom = newdata$Bottom.type.new, 
+pred = data.frame(species = newdata$species, substrate = newdata$Bottom.type.new, 
                   fit = pred$fit[, 1], se.fit = pred$se.fit[, 1])
 ggplot(data = pred) + 
   facet_wrap(~ species) + 
-  geom_point(aes(x = bottom, y = fit)) +
-  geom_segment(aes(x = bottom, y = fit + se.fit, xend = bottom, yend = fit - se.fit))
+  geom_point(aes(x = substrate, y = fit)) +
+  geom_segment(aes(x = substrate, y = fit + se.fit, xend = substrate, yend = fit - se.fit))
+
 #################################################################################
 #################################################################################
 #################################################################################
 ###  Model inter-specific competitions
 library(DirichletReg)
 library(splines)
-library(mgcv)
 library(ggplot2)
-library(dplyr)
 
 ## choose species to model interspecific competition
-sp = "Mull bar"
+sp = "Spic sma"
 sub.data4 = data4[data4$species1 == sp, ]
 
-fac.cols = c(1:15) ## variables holding haul info
+id_var = 1:15 ## variables holding haul info
 
 ## prepare dataset for dirichlet regression
-jcomp = names(data4)[-fac.cols]
-ikeep = rowSums(is.na(sub.data4[, jcomp])) != length(jcomp)
-if(sum(ikeep) == 1) stop("cannot run model with 1 row")
+jcomp = names(data4)[-id_var]
+ikeep = rowSums(is.na(sub.data4[, jcomp])) != length(jcomp)  # keep hauls with at least on competitor species
+if(sum(ikeep) == 1) stop("cannot run model with 1 haul")
 sub.data4 = sub.data4[ikeep, ]
 sub.data4zero = sub.data4
 sub.data4zero[is.na(sub.data4zero)] = 0
 pct = sub.data4zero[, jcomp] * 100
-ddir = sub.data4zero[, fac.cols]
-ddir$Y = DR_data(pct)
+ddir = sub.data4zero[, id_var]
+ddir$Y = DR_data(pct)  # ignore warnings
 
-## only-intercept model
+## Run models -- may take some time for all
+# only-intercept model
 m0 = DirichReg(Y ~ 1, data = ddir, model = "common") 
-## + depth
+# + depth
 m1 = DirichReg(Y ~ bs(Depth, df = 4), data = ddir, model = "common")
-## + substrate
+# + substrate
 m2 = DirichReg(Y ~ bs(Depth, df = 4) + Bottom.type.new, data = ddir, model = "common") 
 
 ## model comparison; select model with depth + bottom
 sig = anova(m0, m1, m2)
+sig
 mod = m2
 
 ## predict/plot depth*bottom effect on interspecific competition
-newdata = expand.grid(Depth = seq(min(ddir$Depth, na.rm = TRUE), max(ddir$Depth, na.rm = TRUE), by = 10),
+newdata = expand.grid(Depth = seq(min(ddir$Depth, na.rm = TRUE), 
+                                  max(ddir$Depth, na.rm = TRUE), by = 10),
                       Bottom.type.new = levels(droplevels(ddir$Bottom.type.new)))
 pred = predict(mod, newdata, mu = TRUE)
 colnames(pred) = colnames(ddir$Y)
 pred = stack(as.data.frame(pred))
-pred = data.frame(newdata, pred); names(pred) = c("depth", "bottom", "COMP", "species")
+pred = data.frame(newdata, pred); names(pred) = c("depth", "substrate", "COMP", "species")
 
-## select, e.g., top 4 species by substrate for visualization
-top_sp = as.character(unique(slice_max(group_by(aggregate(COMP ~ bottom + species, pred, min), bottom), order_by = COMP, n = 4)$species))
+## select, e.g., top 4 competitor species by substrate for easier visualization
+ntop = 4
+medCOMPs = aggregate(COMP ~ substrate + species, pred, median) # find median competition index by species across depths
+ntop_sp = Reduce(union, lapply(split(medCOMPs, medCOMPs$substrate), function(d) d[order(d$COMP, decreasing = TRUE), "species"][1:ntop]))                                  
 
-ggplot(data = subset(pred, species %in% top_sp),
+ggplot(data = subset(pred, species %in% ntop_sp),
        aes(x = depth, y = COMP, group = species, colour = species)) + 
-  facet_wrap(~ bottom) + 
+  facet_wrap(~ substrate) + 
   geom_line()
