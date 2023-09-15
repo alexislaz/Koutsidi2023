@@ -65,6 +65,33 @@ for(i in 1:nrow(data2)) {
 
 str(all_comps)
 
+################################################################################
+################################################################################
+################################################################################
+### Visualize general patterns of competition index
+library(mgcv)
+library(tidyverse)
+mod = gam(comp ~ 
+            s(year, k = 5)  + 
+            s(Depth, k = 5) + 
+            s(Area, bs = "re") + 
+            s(Bottom.type.new, bs = "re") + 
+            s(species1, bs = "re") + s(exerts, bs = "re"), 
+          data = mutate(pivot_longer(data4, "Angu ang":"Zeus fab", names_to = "exerts", values_to = "comp"), 
+                        Area = factor(Area), species1 = factor(species1), exerts = factor(exerts)),
+          family = Gamma(link = "log"),
+          method = "REML")
+plot(mod, all.terms = TRUE, pages = 1, scale = 0)
+
+################################################################################
+################################################################################
+################################################################################
+### Visualize network of competitors
+library(igraph)
+net = as.matrix(rowsum(data4[16:123], data4$species1, na.rm = TRUE) / rowsum(+!is.na(data4[16:123]), data4$species1))
+net = subset(as.data.frame(as.table(net)), !is.na(Freq))
+plot(graph_from_data_frame(net))
+
 #################################################################################
 #################################################################################
 #################################################################################
